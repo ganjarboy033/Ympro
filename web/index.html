@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>YMusic Hub</title>
+<meta name="description" content="Unduh APK dan rancang tema untuk YMusic.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg">
+<meta name="theme-color" content="#151515">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <img src="icon.svg" alt="" width="40" height="40">
+  <h1>YMusic Hub</h1>
+</header>
+
+<main>
+  <section id="download" class="card">
+    <h2>Unduh APK</h2>
+    <p id="rel-status" class="muted">Memuat rilis terbaru…</p>
+    <div id="rel-assets" class="assets"></div>
+    <p class="muted small">Pilih <b>arm64</b> untuk hampir semua HP modern. Pasang hanya dari rilis GitHub milik Anda sendiri.</p>
+  </section>
+
+  <section id="studio" class="card">
+    <h2>Theme Studio</h2>
+    <div class="studio">
+      <div id="phone" class="phone" aria-label="Pratinjau">
+        <div class="bar">Discover</div>
+        <div class="row"><i></i><span>Judul lagu</span></div>
+        <div class="row"><i></i><span>Judul lagu</span></div>
+        <div class="pill">Play</div>
+        <div class="settings"><span>Pengaturan</span><span>Tema</span></div>
+      </div>
+      <form id="controls" onsubmit="return false">
+        <label>Mode
+          <select id="mode">
+            <option value="dark">Gelap</option>
+            <option value="amoled">Hitam (AMOLED)</option>
+            <option value="light">Terang</option>
+            <option value="">Ikuti sistem</option>
+          </select>
+        </label>
+        <label>Warna aksen <input id="accent" type="color" value="#E8732A"></label>
+        <label>Warna latar <input id="surface" type="color" value="#272727"> <button type="button" id="surface-reset">bawaan</button></label>
+        <label>Ukuran teks <output id="font-out">100%</output><input id="font" type="range" min="85" max="130" step="5" value="100"></label>
+        <label>Kebulatan sudut <output id="corner-out">100%</output><input id="corner" type="range" min="0" max="200" step="10" value="100"></label>
+        <div class="presets" id="presets"></div>
+      </form>
+    </div>
+    <label class="code">Kode tema (tempel di aplikasi: Pengaturan → Studio tema)
+      <textarea id="code" rows="2" spellcheck="false"></textarea>
+    </label>
+    <button type="button" id="copy">Salin kode</button>
+  </section>
+
+  <section class="card">
+    <h2>Menu scraper</h2>
+    <p class="muted">Tempat untuk sumber/scraper tambahan akan ditambahkan di sini.</p>
+  </section>
+</main>
+<footer class="muted small">Proyek turunan YMusic, lisensi GPL-3.0. Tidak berafiliasi dengan YouTube atau Google.</footer>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
