@@ -1,0 +1,178 @@
+name: build-android
+
+
+# Builds the Android APKs in your own fork. No upstream secrets are needed.
+#   Actions -> build-android -> Run workflow   (pick the ABIs; arm64-v8a is enough for nearly every phone)
+#   git tag v1.0.0 && git push origin v1.0.0   (builds all ABIs and publishes a GitHub Release)
+#
+# Optional repository secrets:
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+#       your own signing key; without them the APK is debug-signed (installable, not for distribution)
+#   YMUSIC_REMOTE_CONFIG_URL, YMUSIC_BUNDLE_PUBLIC_KEY, YMUSIC_UPDATE_PUBLIC_KEY
+#       a ymusic-server you run; without them there is no remote config, in-app update, SponsorBlock
+#       lookup or QR device-linking (those talk to that server)
+on:
+  workflow_dispatch:
+    inputs:
+      abis:
+        description: Comma-separated ABIs (armeabi-v7a, arm64-v8a, x86, x86_64)
+        default: arm64-v8a
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FFMPEG_BUILD_REPO: ymusic-io/ffmpeg-build
+  FFMPEG_BUILD_REF: d79bfb002882b75dd8d2255873d3e5e2dc938f4a
+  NDK_VERSION: 28.2.13676358
+  YMUSIC_ABIS: ${{ github.event_name == 'workflow_dispatch' && inputs.abis || 'armeabi-v7a,arm64-v8a,x86,x86_64' }}
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      slugs: ${{ steps.p.outputs.slugs }}
+    steps:
+      - id: p
+        run: |
+          set -euo pipefail
+          json="["
+          for abi in ${YMUSIC_ABIS//,/ }; do
+            case "$abi" in armeabi-v7a|arm64-v8a|x86|x86_64) json+="\"android-$abi\"," ;; *) echo "unknown ABI $abi" >&2; exit 1 ;; esac
+          done
+          echo "slugs=${json%,}]" >> "$GITHUB_OUTPUT"
+
+  ffmpeg:
+    needs: plan
+    name: ffmpeg ${{ matrix.slug }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        slug: ${{ fromJson(needs.plan.outputs.slugs) }}
+    steps:
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: ffmpeg-build/out/${{ matrix.slug }}
+          key: ffmpeg-${{ matrix.slug }}-${{ env.FFMPEG_BUILD_REF }}-ndk${{ env.NDK_VERSION }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FFMPEG_BUILD_REPO }}
+          ref: ${{ env.FFMPEG_BUILD_REF }}
+          path: ffmpeg-build
+          submodules: recursive
+          fetch-depth: 1
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" > /dev/null
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          sudo apt-get update && sudo apt-get install -y nasm automake autoconf libtool pkg-config patchelf
+      - if: steps.cache.outputs.cache-hit != 'true'
+        working-directory: ffmpeg-build
+        env:
+          SLUG: ${{ matrix.slug }}
+        run: scripts/build-android.sh "${SLUG#android-}"
+
+  apk:
+    needs: [plan, ffmpeg]
+    runs-on: ubuntu-24.04
+    env:
+      YMUSIC_REMOTE_CONFIG_URL: ${{ secrets.YMUSIC_REMOTE_CONFIG_URL }}
+      YMUSIC_BUNDLE_PUBLIC_KEY: ${{ secrets.YMUSIC_BUNDLE_PUBLIC_KEY }}
+      YMUSIC_UPDATE_PUBLIC_KEY: ${{ secrets.YMUSIC_UPDATE_PUBLIC_KEY }}
+      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      YMUSIC_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      YMUSIC_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      YMUSIC_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: YMusicV4
+      - uses: actions/cache/restore@v4
+        if: contains(format(',{0},', env.YMUSIC_ABIS), ',armeabi-v7a,')
+        with:
+          path: ffmpeg-build/out/android-armeabi-v7a
+          key: ffmpeg-android-armeabi-v7a-${{ env.FFMPEG_BUILD_REF }}-ndk${{ env.NDK_VERSION }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        if: contains(format(',{0},', env.YMUSIC_ABIS), ',arm64-v8a,')
+        with:
+          path: ffmpeg-build/out/android-arm64-v8a
+          key: ffmpeg-android-arm64-v8a-${{ env.FFMPEG_BUILD_REF }}-ndk${{ env.NDK_VERSION }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        if: contains(format(',{0},', env.YMUSIC_ABIS), ',x86,')
+        with:
+          path: ffmpeg-build/out/android-x86
+          key: ffmpeg-android-x86-${{ env.FFMPEG_BUILD_REF }}-ndk${{ env.NDK_VERSION }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        if: contains(format(',{0},', env.YMUSIC_ABIS), ',x86_64,')
+        with:
+          path: ffmpeg-build/out/android-x86_64
+          key: ffmpeg-android-x86_64-${{ env.FFMPEG_BUILD_REF }}-ndk${{ env.NDK_VERSION }}
+          fail-on-cache-miss: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+      - name: Install NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" > /dev/null
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - name: Signing key
+        working-directory: YMusicV4
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            mkdir -p signing
+            echo "$KEYSTORE_B64" | base64 --decode > signing/release.p12
+            echo "YMUSIC_ANDROID_STORE_FILE=signing/release.p12" >> "$GITHUB_ENV"
+          else
+            echo "::notice::no ANDROID_KEYSTORE_BASE64 secret: the APK is debug-signed"
+          fi
+      - name: Assemble release APKs
+        working-directory: YMusicV4
+        run: ./gradlew -Pproduction=true --no-daemon :androidApp:assembleRelease
+      - name: Discard signing key
+        if: always()
+        working-directory: YMusicV4
+        run: rm -rf signing
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apks
+          path: YMusicV4/androidApp/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: apk
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-apks
+          path: apks
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          (cd apks && sha256sum *.apk > SHA256SUMS)
+          gh release create "$TAG" apks/* --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes
