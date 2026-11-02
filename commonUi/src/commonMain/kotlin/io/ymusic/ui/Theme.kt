@@ -326,7 +326,10 @@ private fun schemeFor(c: DesignPalette) = with(c) {
 
 @Composable
 fun YMusicTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) =
-    YMusicTheme(if (dark) DarkDesignColors else LightDesignColors, content)
+    YMusicTheme(
+        palette = if (dark) DarkDesignColors else LightDesignColors,
+        content = content
+    )
 
 @Composable
 fun YMusicTheme(
